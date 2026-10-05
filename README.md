@@ -7,7 +7,10 @@ It ships with a preset for **Genshin Impact's 21-key instrument layout**, so you
 can play the Windsong Lyre, Floral Zither, Vintage Lyre or any other playable
 instrument from a real MIDI piano.
 
-![Demo GIF](img/demo.gif)
+**Demo** — [img/demo.mp4](img/demo.mp4) shows the original project playing an FPS
+with a MIDI keyboard. GitHub renders it inline on the
+[repository page](https://github.com/ajstensland/MIDIator); locally, open the
+file directly.
 
 - [Quickstart](#quickstart)
 - [Genshin Impact preset](#genshin-impact-preset)
