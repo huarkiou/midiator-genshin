@@ -1,0 +1,52 @@
+# Line-ending and binary handling.
+#
+# This machine and many Windows installs set core.autocrlf=true system-wide.
+# Without this file that setting decides what the checkout looks like, so the
+# same commit can produce different working trees for different people. The
+# rules below are explicit, which makes the attributes take precedence over
+# core.autocrlf.
+#
+# Policy: every text file is stored with LF *and* checked out with LF, so the
+# repository is byte-identical everywhere. Git normalises on commit, so a CRLF
+# working copy is cleaned up rather than committed.
+* text=auto eol=lf
+
+# Windows-only scripts. The cmd.exe and PowerShell parsers are happier with
+# CRLF, and these files run on Windows exclusively.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Explicitly mark text files that Git's content sniffing could mistake for
+# binary, or that must never be normalised.
+*.py   text
+*.pyi  text
+*.md   text
+*.toml text
+*.cfg  text
+*.ini  text
+*.json text
+*.yml  text
+*.yaml text
+
+# Binaries: never diff, merge or normalise these.
+*.exe   binary
+*.dll   binary
+*.pyd   binary
+*.so    binary
+*.gif   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.ico   binary
+*.mp4   binary
+*.webm  binary
+*.wav   binary
+*.mp3   binary
+*.zip   binary
+*.7z    binary
+*.pdf   binary
+
+# Vendored dependency trees are not this project's code.
+.venv/** linguist-vendored

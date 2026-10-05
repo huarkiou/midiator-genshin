@@ -1,6 +1,7 @@
 # --- uv / Python -----------------------------------------------------------
 
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -16,13 +17,19 @@ build/
 .mypy_cache/
 .ty/
 .coverage
+.coverage.*
 htmlcov/
+.hypothesis/
 
 # --- MIDIator --------------------------------------------------------------
 
 # Your local configuration and anything personal you keep next to it.
+# midiator.example.toml is the committed template; this is the real one.
 midiator.toml
 *.local.toml
+
+# Logs, including the `uv run midiator *> midiator.log` troubleshooting trick.
+*.log
 
 # --- editors / OS ----------------------------------------------------------
 
