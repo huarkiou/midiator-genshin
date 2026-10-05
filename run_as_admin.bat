@@ -1,8 +1,13 @@
 @echo off
 rem MIDIator launcher for Windows.
-rem Double-click to run. Requests administrator rights first, because Genshin
-rem Impact usually runs elevated and Windows ignores synthetic input sent from a
-rem lower-integrity process.
+rem Run this FROM AN ELEVATED CONTEXT: either "Run as administrator" from the
+rem right-click menu, or a shortcut with Advanced -> "Run as administrator" ticked.
+rem
+rem It does not elevate itself, on purpose. See the message below and the
+rem "Running from a double-click" section of README.md.
+rem
+rem Administrator rights matter because Genshin Impact usually runs elevated, and
+rem Windows ignores synthetic input sent from a lower-integrity process.
 rem
 rem This file is deliberately ASCII-only, and must be saved without a BOM.
 rem cmd.exe re-reads a running batch file by byte offset, so non-ASCII bytes or
@@ -15,53 +20,28 @@ net session >nul 2>&1
 if not errorlevel 1 goto :elevated
 
 echo.
-echo   Administrator rights are needed: Genshin Impact usually runs elevated,
-echo   and Windows ignores input sent from a lower-integrity process.
+echo   This script must already be running with administrator rights.
 echo.
-echo   A User Account Control prompt will appear and ask whether to allow this.
-echo   It is shown on the secure desktop, so the screen may dim or flash and the
-echo   prompt may sit behind other windows. Choose Yes.
+echo   It deliberately does NOT try to elevate itself. On some systems the
+echo   self-elevation call is cancelled by Windows before the consent dialog is
+echo   ever drawn, which looks like a hang and then an unexplained failure.
 echo.
-echo   If nothing seems to happen, look for the prompt on the taskbar, or press
-echo   Alt+Tab. You can also cancel here and use the shortcut method in the
-echo   README instead.
+echo   Start it as administrator in either of these ways:
 echo.
-
-rem Relaunch this exact file elevated, preserving any arguments.
-rem No -Wait: the launcher's only job is to get an elevated copy running, and the
-rem elevated window has its own console, so this one can close straight away.
-rem Exit 9 marks "the exception path", i.e. the prompt was declined or blocked.
-set "MIDIATOR_SELF=%~f0"
-set "MIDIATOR_SELF_ARGS=%*"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath $env:MIDIATOR_SELF -ArgumentList $env:MIDIATOR_SELF_ARGS -Verb RunAs -ErrorAction Stop; exit 0 } catch { exit 9 }"
-set "MIDIATOR_ELEV=%ERRORLEVEL%"
-if "%MIDIATOR_ELEV%"=="0" goto :elevated_done
-
+echo     1. Right-click this file and choose "Run as administrator".
 echo.
-echo   Elevation did not happen, so MIDIator was not started.
+echo     2. Recommended: make a shortcut that always elevates.
+echo        Right-click this file, then Send to, then Desktop (create shortcut).
+echo        Right-click the new shortcut, choose Properties, open the Shortcut
+echo        tab, click Advanced, and tick "Run as administrator".
+echo        Launching that shortcut elevates before this script starts, so the
+echo        prompt is a Windows one and is never skipped.
 echo.
-if "%MIDIATOR_ELEV%"=="9" (
-    echo   Windows reported that the operation was cancelled, which means the UAC
-    echo   prompt was declined, dismissed, or replaced by a "blocked" dialog.
-    echo.
-    echo   Run this file again and choose Yes on the prompt. If you did not see a
-    echo   prompt at all, it may have appeared on the secure desktop behind other
-    echo   windows: check the taskbar and press Alt+Tab.
-) else (
-    echo   The elevation helper returned an unexpected code ^(%MIDIATOR_ELEV%^).
-    echo   Try the shortcut method described in README.md.
-)
+echo   See "Running from a double-click" in README.md for more detail.
 echo.
-echo   To avoid the prompt entirely, make a shortcut to this file, open its
-echo   Properties, Shortcut tab, Advanced, and tick "Run as administrator".
-echo.
-pause
+if not defined MIDIATOR_NO_PAUSE pause
 popd
 exit /b 1
-
-:elevated_done
-popd
-exit /b 0
 
 :elevated
 
@@ -91,7 +71,7 @@ echo   Install it first, then run this script again:
 echo.
 echo       powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 ^| iex"
 echo.
-pause
+if not defined MIDIATOR_NO_PAUSE pause
 popd
 exit /b 1
 
@@ -104,7 +84,7 @@ if errorlevel 1 (
     echo.
     echo   "uv sync" failed. Scroll up for the reason.
     echo.
-    pause
+    if not defined MIDIATOR_NO_PAUSE pause
     popd
     exit /b 1
 )
@@ -124,6 +104,6 @@ if "%MIDIATOR_EXIT%"=="0" (
     echo   MIDIator exited with code %MIDIATOR_EXIT%. Scroll up for the reason.
 )
 echo.
-pause
+if not defined MIDIATOR_NO_PAUSE pause
 popd
 exit /b %MIDIATOR_EXIT%

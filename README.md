@@ -52,28 +52,38 @@ synthetic input.
 
 ### Running from a double-click
 
-`run_as_admin.bat` does the elevation for you: double-click it and it requests
-administrator rights, then starts MIDIator.
+Genshin usually runs elevated, and Windows ignores synthetic input sent from a
+lower-integrity process, so MIDIator has to run elevated too.
 
-Windows asks for permission through a User Account Control prompt. That prompt
-is drawn on the **secure desktop**, so the screen may dim or flash, and the
-dialog can end up behind other windows — check the taskbar or press `Alt+Tab` if
-you do not see it. Declining it means MIDIator never starts, and the script says
-so.
+**`run_as_admin.bat` does not elevate itself, on purpose.** It assumes it is
+already elevated and starts MIDIator; if it is not, it prints how to elevate and
+exits. That is deliberate: on some systems a script asking to elevate itself gets
+cancelled by Windows before the consent dialog is ever drawn, which looks like a
+hang followed by an unexplained failure, with nothing in the event log.
 
-If the prompt is a nuisance, make a permanent elevated shortcut instead. This is
-the more reliable of the two, because Windows applies the elevation before the
-script runs and never shows a per-launch dialog:
+So elevate first, one of two ways:
+
+**Right-click, once:**
+
+1. Right-click `run_as_admin.bat` → **Run as administrator**.
+2. Choose **Yes** on the prompt.
+
+**A shortcut, so you never think about it again (recommended):**
 
 1. Right-click `run_as_admin.bat` → **Show more options** → **Send to** →
    **Desktop (create shortcut)**. On Windows 10, **Send to** is on the first
    menu.
 2. Right-click the new shortcut → **Properties** → **Shortcut** tab →
    **Advanced…** → tick **Run as administrator**.
-3. Launch MIDIator from that shortcut from now on.
+3. Launch MIDIator from that shortcut from now on. Windows elevates before the
+   script runs, and the prompt is a Windows one rather than a script asking for
+   itself.
 
 Either way you get a console window showing the log. Leave it open while you
 play; closing it stops MIDIator.
+
+If you prefer no window at all, run `uv run midiator` from an elevated terminal
+instead — that is exactly what the script does.
 
 ## Genshin Impact preset
 
