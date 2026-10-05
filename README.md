@@ -50,6 +50,31 @@ Keep the game in the foreground after starting MIDIator. If Genshin runs as
 administrator, start your terminal as administrator too, so Windows accepts the
 synthetic input.
 
+### Running from a double-click
+
+`run_as_admin.bat` does the elevation for you: double-click it and it requests
+administrator rights, then starts MIDIator.
+
+Windows asks for permission through a User Account Control prompt. That prompt
+is drawn on the **secure desktop**, so the screen may dim or flash, and the
+dialog can end up behind other windows — check the taskbar or press `Alt+Tab` if
+you do not see it. Declining it means MIDIator never starts, and the script says
+so.
+
+If the prompt is a nuisance, make a permanent elevated shortcut instead. This is
+the more reliable of the two, because Windows applies the elevation before the
+script runs and never shows a per-launch dialog:
+
+1. Right-click `run_as_admin.bat` → **Show more options** → **Send to** →
+   **Desktop (create shortcut)**. On Windows 10, **Send to** is on the first
+   menu.
+2. Right-click the new shortcut → **Properties** → **Shortcut** tab →
+   **Advanced…** → tick **Run as administrator**.
+3. Launch MIDIator from that shortcut from now on.
+
+Either way you get a console window showing the log. Leave it open while you
+play; closing it stops MIDIator.
+
 ## Genshin Impact preset
 
 ### The layout

@@ -18,21 +18,48 @@ echo.
 echo   Administrator rights are needed: Genshin Impact usually runs elevated,
 echo   and Windows ignores input sent from a lower-integrity process.
 echo.
-echo   Approve the prompt to continue, or choose No to cancel.
+echo   A User Account Control prompt will appear and ask whether to allow this.
+echo   It is shown on the secure desktop, so the screen may dim or flash and the
+echo   prompt may sit behind other windows. Choose Yes.
+echo.
+echo   If nothing seems to happen, look for the prompt on the taskbar, or press
+echo   Alt+Tab. You can also cancel here and use the shortcut method in the
+echo   README instead.
 echo.
 
 rem Relaunch this exact file elevated, preserving any arguments.
+rem No -Wait: the launcher's only job is to get an elevated copy running, and the
+rem elevated window has its own console, so this one can close straight away.
+rem Exit 9 marks "the exception path", i.e. the prompt was declined or blocked.
 set "MIDIATOR_SELF=%~f0"
 set "MIDIATOR_SELF_ARGS=%*"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath $env:MIDIATOR_SELF -ArgumentList $env:MIDIATOR_SELF_ARGS -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
-if errorlevel 1 (
-    echo   Cancelled, or elevation was refused. Nothing was started.
-    echo.
-    pause
-    popd
-    exit /b 1
-)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath $env:MIDIATOR_SELF -ArgumentList $env:MIDIATOR_SELF_ARGS -Verb RunAs -ErrorAction Stop; exit 0 } catch { exit 9 }"
+set "MIDIATOR_ELEV=%ERRORLEVEL%"
+if "%MIDIATOR_ELEV%"=="0" goto :elevated_done
 
+echo.
+echo   Elevation did not happen, so MIDIator was not started.
+echo.
+if "%MIDIATOR_ELEV%"=="9" (
+    echo   Windows reported that the operation was cancelled, which means the UAC
+    echo   prompt was declined, dismissed, or replaced by a "blocked" dialog.
+    echo.
+    echo   Run this file again and choose Yes on the prompt. If you did not see a
+    echo   prompt at all, it may have appeared on the secure desktop behind other
+    echo   windows: check the taskbar and press Alt+Tab.
+) else (
+    echo   The elevation helper returned an unexpected code ^(%MIDIATOR_ELEV%^).
+    echo   Try the shortcut method described in README.md.
+)
+echo.
+echo   To avoid the prompt entirely, make a shortcut to this file, open its
+echo   Properties, Shortcut tab, Advanced, and tick "Run as administrator".
+echo.
+pause
+popd
+exit /b 1
+
+:elevated_done
 popd
 exit /b 0
 
