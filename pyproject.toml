@@ -5,7 +5,12 @@ description = "Turn MIDI devices into Windows keyboard and mouse input, with a b
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "ajstensland" }]
+# This is a fork. AJ Stensland wrote the original MIDIator, and the MIT licence
+# requires keeping that attribution; the second entry is the fork's maintainer.
+authors = [
+    { name = "AJ Stensland" },
+    { name = "huarkiou" },
+]
 keywords = ["midi", "windows", "input", "genshin", "lyre", "keyboard"]
 classifiers = [
     "Environment :: Win32 (MS Windows)",
@@ -18,6 +23,10 @@ dependencies = [
     "mido>=1.3.0",
     "python-rtmidi>=1.5.0",
 ]
+
+[project.urls]
+"Upstream (original MIDIator)" = "https://github.com/ajstensland/MIDIator"
+Repository = "https://github.com/huarkiou/midiator-genshin"
 
 [project.scripts]
 midiator = "midiator.__main__:main"

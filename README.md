@@ -338,12 +338,19 @@ Layout:
 
 ## Prior work and licence
 
-MIDIator was created by [ajstensland](https://github.com/ajstensland/MIDIator)
-and released under the MIT licence, which this fork keeps. The Genshin key
-layout matches the one used by
+**MIDIator was created by [ajstensland](https://github.com/ajstensland/MIDIator)**
+and released under the MIT licence. This repository is an independent fork of it
+that adds the Genshin Impact instrument preset, hot-plug support, a corrected
+`SendInput` layer and a test suite; the original copyright notice is kept
+verbatim in [LICENSE](LICENSE), and the upstream project remains the canonical
+MIDIator.
+
+The Genshin key layout matches the one used by
 [GenshinMusic](https://github.com/goldlzh/GenshinMusic). The `SendInput`
 structures are adapted from Nicholas Brochu's Serpent.AI work; see the header of
 `src/midiator/windows/keyboard.py`.
 
-This is an input automation tool, not an official Genshin Impact feature. Use it
-within the game's rules and at your own discretion.
+This is a community tool. It is not affiliated with, endorsed by, or sponsored
+by HoYoverse or miHoYo, and it is not an official Genshin Impact feature.
+"Genshin Impact" is a trademark of its respective owner. It is an input
+automation tool: use it within the game's rules and at your own discretion.
