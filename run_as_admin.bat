@@ -1,13 +1,12 @@
 @echo off
 rem MIDIator launcher for Windows.
-rem Run this FROM AN ELEVATED CONTEXT: either "Run as administrator" from the
-rem right-click menu, or a shortcut with Advanced -> "Run as administrator" ticked.
+rem Double-click to run. It asks Windows for administrator rights, because
+rem Genshin Impact runs elevated and Windows ignores synthetic input sent from a
+rem lower-integrity process.
 rem
-rem It does not elevate itself, on purpose. See the message below and the
-rem "Running from a double-click" section of README.md.
-rem
-rem Administrator rights matter because Genshin Impact usually runs elevated, and
-rem Windows ignores synthetic input sent from a lower-integrity process.
+rem If the elevation request is refused before any prompt appears, see the
+rem fallback instructions it prints, or "Running from a double-click" in
+rem README.md.
 rem
 rem This file is deliberately ASCII-only, and must be saved without a BOM.
 rem cmd.exe re-reads a running batch file by byte offset, so non-ASCII bytes or
@@ -20,28 +19,54 @@ net session >nul 2>&1
 if not errorlevel 1 goto :elevated
 
 echo.
-echo   This script must already be running with administrator rights.
+echo   MIDIator needs administrator rights: Genshin Impact runs elevated, and
+echo   Windows ignores input sent from a lower-integrity process.
 echo.
-echo   It deliberately does NOT try to elevate itself. On some systems the
-echo   self-elevation call is cancelled by Windows before the consent dialog is
-echo   ever drawn, which looks like a hang and then an unexplained failure.
+echo   A User Account Control prompt will appear and ask whether to allow this.
+echo   Choose Yes.
 echo.
-echo   Start it as administrator in either of these ways:
+
+rem Ask Windows to elevate a fresh copy of this script.
+rem
+rem The obvious form, Start-Process -FilePath "<this.bat>" -Verb RunAs, is
+rem unreliable: it depends on the .bat file association, and on some systems it
+rem is cancelled by Windows before the consent dialog is drawn, which surfaces as
+rem ERROR_CANCELLED with no prompt and nothing in the event log. Elevating
+rem cmd.exe directly avoids that association and works the same way the
+rem right-click "Run as administrator" entry does.
+rem
+rem Exit 0 means the elevated copy was launched. Exit 9 means the exception path,
+rem i.e. the request never reached a consent dialog.
+set "MIDIATOR_SELF=%~f0"
+set "MIDIATOR_SELF_ARGS=%*"
+rem Always elevate cmd.exe rather than this .bat file, so the file association is
+rem not involved. PowerShell is invoked with -Command, and the quoting is kept
+rem simple by passing the path through the environment.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$a = '/c ' + [char]34 + $env:MIDIATOR_SELF + [char]34 + ' ' + $env:MIDIATOR_SELF_ARGS; try { Start-Process -FilePath cmd.exe -ArgumentList $a -Verb RunAs -ErrorAction Stop; exit 0 } catch { exit 9 }"
+set "MIDIATOR_ELEV=%ERRORLEVEL%"
+if "%MIDIATOR_ELEV%"=="0" goto :elevated_done
+
 echo.
-echo     1. Right-click this file and choose "Run as administrator".
+echo   Windows refused the elevation request before showing a prompt.
 echo.
-echo     2. Recommended: make a shortcut that always elevates.
-echo        Right-click this file, then Send to, then Desktop (create shortcut).
-echo        Right-click the new shortcut, choose Properties, open the Shortcut
-echo        tab, click Advanced, and tick "Run as administrator".
-echo        Launching that shortcut elevates before this script starts, so the
-echo        prompt is a Windows one and is never skipped.
+echo   Start this file with the right-click menu instead, which does not go
+echo   through the same code path:
 echo.
-echo   See "Running from a double-click" in README.md for more detail.
+echo       Right-click run_as_admin.bat, then "Run as administrator".
+echo.
+echo   Or make that permanent:
+echo.
+echo       Right-click this file, Send to, Desktop (create shortcut).
+echo       Right-click the shortcut, Properties, Shortcut tab, Advanced, tick
+echo       "Run as administrator". Launch that from now on.
 echo.
 if not defined MIDIATOR_NO_PAUSE pause
 popd
 exit /b 1
+
+:elevated_done
+popd
+exit /b 0
 
 :elevated
 

@@ -52,38 +52,28 @@ synthetic input.
 
 ### Running from a double-click
 
-Genshin usually runs elevated, and Windows ignores synthetic input sent from a
-lower-integrity process, so MIDIator has to run elevated too.
+Genshin runs elevated, and Windows ignores synthetic input sent from a
+lower-integrity process, so MIDIator has to run elevated too. `run_as_admin.bat`
+is double-clickable and asks for that elevation itself.
 
-**`run_as_admin.bat` does not elevate itself, on purpose.** It assumes it is
-already elevated and starts MIDIator; if it is not, it prints how to elevate and
-exits. That is deliberate: on some systems a script asking to elevate itself gets
-cancelled by Windows before the consent dialog is ever drawn, which looks like a
-hang followed by an unexplained failure, with nothing in the event log.
+It elevates **`cmd.exe`**, not the batch file, and that detail matters. Asking
+Windows to elevate the `.bat` directly goes through the `.bat` file association
+and can be cancelled before the consent dialog is ever drawn: no prompt, nothing
+in the event log, and only `ERROR_CANCELLED` to show for it. Launching `cmd.exe`
+directly sidesteps the association and behaves like the right-click
+**Run as administrator** entry.
 
-So elevate first, one of two ways:
+If the prompt does not appear and the script reports that the request was
+refused, fall back to doing it by hand:
 
-**Right-click, once:**
-
-1. Right-click `run_as_admin.bat` → **Run as administrator**.
-2. Choose **Yes** on the prompt.
-
-**A shortcut, so you never think about it again (recommended):**
-
-1. Right-click `run_as_admin.bat` → **Show more options** → **Send to** →
-   **Desktop (create shortcut)**. On Windows 10, **Send to** is on the first
-   menu.
-2. Right-click the new shortcut → **Properties** → **Shortcut** tab →
-   **Advanced…** → tick **Run as administrator**.
-3. Launch MIDIator from that shortcut from now on. Windows elevates before the
-   script runs, and the prompt is a Windows one rather than a script asking for
-   itself.
+1. Right-click `run_as_admin.bat` → **Run as administrator**, or
+2. Make it permanent: right-click the file → **Show more options** →
+   **Send to** → **Desktop (create shortcut)**; then right-click the shortcut →
+   **Properties** → **Shortcut** tab → **Advanced…** → tick **Run as
+   administrator**, and launch that from now on.
 
 Either way you get a console window showing the log. Leave it open while you
 play; closing it stops MIDIator.
-
-If you prefer no window at all, run `uv run midiator` from an elevated terminal
-instead — that is exactly what the script does.
 
 ## Genshin Impact preset
 
