@@ -15,6 +15,12 @@ verbose = true
 substring = true
 # MIDI channel 0-15, or comment out to listen on all channels.
 channel = 0
+# Wait for the device at startup, and reopen it if it disconnects.
+reconnect = true
+# Seconds between attempts to open the device.
+retry_seconds = 2.0
+# Seconds of silence before the port is checked for liveness.
+watchdog_seconds = 30.0
 
 [windows]
 # 'scancode' suits games; 'virtualkey' suits normal applications.

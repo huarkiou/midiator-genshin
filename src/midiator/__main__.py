@@ -7,6 +7,8 @@ import logging
 import sys
 from pathlib import Path
 
+import mido
+
 from midiator.config import DEFAULT_CONFIG_NAME, Config, load_config, write_default_config
 
 logger = logging.getLogger("midiator")
@@ -42,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--key-mode", choices=("scancode", "virtualkey"), default=None, help="override how keys are sent"
     )
     parser.add_argument(
+        "--no-reconnect",
+        action="store_true",
+        help="exit instead of waiting for the MIDI device to appear or come back",
+    )
+    parser.add_argument(
         "--preview", type=int, nargs="+", metavar="NOTE", help="print the mapping for MIDI notes and exit"
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="only log warnings and errors")
@@ -71,6 +78,8 @@ def _apply_overrides(config: Config, args: argparse.Namespace) -> Config:
         config.genshin.transpose = args.transpose
     if args.key_mode is not None:
         config.windows.key_mode = args.key_mode
+    if args.no_reconnect:
+        config.midi.reconnect = False
     return config
 
 
@@ -138,22 +147,50 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = Midiator(config, keys, mouse)
 
-    from midiator.midi import MidiDeviceError, iter_messages, open_input
+    from midiator.midi import MidiDeviceError, MidiInput, MidiSupervisor, open_input
+
+    def open_port() -> MidiInput:
+        return open_input(config.midi.device, substring=config.midi.substring)
+
+    def handle(message: mido.Message) -> None:
+        transition = engine.notes.update(message)
+        if transition is not None:
+            engine.handle(transition)
+
+    def announce_waiting(error: MidiDeviceError) -> None:
+        logger.info("%s", error)
+        if "Available inputs" in str(error):
+            logger.info("Waiting for the MIDI device; plug it in and playing will start automatically.")
+
+    def on_disconnect(error: BaseException | None) -> None:
+        # Release everything before looking for the device again, so no key stays
+        # stuck down in the game while the keyboard is unplugged.
+        engine.all_off()
+        logger.info("Releasing every held key and waiting for the device to come back.")
+
+    supervisor = MidiSupervisor(
+        open_port,
+        retry_seconds=config.midi.retry_seconds,
+        watchdog_seconds=config.midi.watchdog_seconds,
+        reconnect=config.midi.reconnect,
+    )
+
+    engine.describe_setup()
+    engine.start_mouse_thread()
+    if config.midi.reconnect:
+        logger.info("Watching for the MIDI device; unplugging it is safe, MIDIator will wait and reconnect.")
+    logger.info("Handling MIDI events. Press Ctrl+C to stop.")
 
     try:
-        port = open_input(config.midi.device, substring=config.midi.substring)
+        supervisor.run(handle, on_disconnect=on_disconnect, on_waiting=announce_waiting)
+    except KeyboardInterrupt:
+        logger.info("Interrupted.")
+        supervisor.stop()
     except MidiDeviceError as error:
         logger.error("%s", error)
         return 1
-    logger.info("Connected to MIDI input %r", port.name)
-
-    try:
-        engine.run(iter_messages(port))
-    except KeyboardInterrupt:
-        logger.info("Interrupted.")
-        engine.stop()
     finally:
-        port.close()
+        engine.stop()
     return 0
 
 

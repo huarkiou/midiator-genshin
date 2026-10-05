@@ -23,6 +23,9 @@ class TestDefaults:
         assert config.genshin.accidental == "snap"
         assert config.genshin.out_of_range == "fold"
         assert config.midi.channel == 0
+        assert config.midi.reconnect is True
+        assert config.midi.retry_seconds == 2.0
+        assert config.midi.watchdog_seconds == 30.0
         assert config.verbose is True
 
     def test_explicit_missing_path_raises(self, tmp_path: Path) -> None:
@@ -48,6 +51,9 @@ class TestParsing:
             device = "Casio"
             substring = false
             channel = 3
+            reconnect = false
+            retry_seconds = 0.5
+            watchdog_seconds = 12.0
 
             [windows]
             key_mode = "virtualkey"
@@ -77,6 +83,9 @@ class TestParsing:
         assert config.midi.device == "Casio"
         assert config.midi.substring is False
         assert config.midi.channel == 3
+        assert config.midi.reconnect is False
+        assert config.midi.retry_seconds == 0.5
+        assert config.midi.watchdog_seconds == 12.0
         assert config.windows.key_mode == "virtualkey"
         assert config.windows.mouse_sensitivity == 8
         assert config.genshin.transpose == -2
@@ -124,6 +133,9 @@ class TestValidation:
             ('[genshin]\nout_of_range = "maybe"\n', "out_of_range"),
             ("[genshin]\ntranspose = 99\n", "transpose"),
             ("[midi]\nchannel = 42\n", "channel"),
+            ("[midi]\nretry_seconds = 0\n", "retry_seconds"),
+            ("[midi]\nretry_seconds = -1\n", "retry_seconds"),
+            ("[midi]\nwatchdog_seconds = 0\n", "watchdog_seconds"),
             ("[midi]\nsubstring = false\n", "exact"),
         ],
     )

@@ -126,6 +126,9 @@ verbose = true       # log every note
 device = "Casio"     # part of the device name, case-insensitive
 substring = true     # false requires an exact name match
 channel = 0          # 0-15, or comment out for all channels
+reconnect = true     # wait for the device and reopen it after a disconnect
+retry_seconds = 2.0  # how often to look for the device
+watchdog_seconds = 30.0
 
 [windows]
 key_mode = "scancode"        # "scancode" for games, "virtualkey" otherwise
@@ -152,6 +155,42 @@ Windows accepts two ways of describing a key, and they are not interchangeable:
 The original MIDIator wrote scan codes into the virtual-key field, which is why
 it was unreliable in games. If your target application ignores `"scancode"`,
 switch to `"virtualkey"`.
+
+## Hot-plugging
+
+The MIDI device does not have to be connected when MIDIator starts, and
+unplugging it mid-session is safe.
+
+- **No device yet?** MIDIator keeps running and retries every
+  `retry_seconds`, printing what it is waiting for. Plug the keyboard in and
+  playing starts immediately, with no restart.
+- **Device unplugged while playing?** Every held key is released straight away,
+  so nothing gets stuck down in the game, and MIDIator then waits for the device
+  to come back and reopens it automatically.
+
+```toml
+[midi]
+reconnect = true         # set false to exit instead of waiting
+retry_seconds = 2.0      # how often to look for the device
+watchdog_seconds = 30.0  # silence before the port is checked for liveness
+```
+
+Two mechanisms watch for a disconnect, because a unplug is not always reported:
+
+1. Windows normally makes the port raise as soon as the device goes away, and
+   MIDIator notices immediately.
+2. If WinMM instead goes quiet without saying anything, MIDIator only reacts
+   after `watchdog_seconds` without a single MIDI message. There is no way to
+   tell that silence apart from simply not playing, so keep this value longer
+   than your longest pause between notes.
+
+Reads happen on a background thread, because `mido`'s blocking iterator cannot
+be interrupted: a dead port could otherwise block the main loop forever. Raw
+input is never replayed, so notes pressed while the keyboard was unplugged are
+not sent when it returns.
+
+Use `--no-reconnect` to get the old exit-on-failure behaviour, which is handy in
+scripts.
 
 ## Generic mode
 
@@ -194,6 +233,7 @@ uv run midiator [options]
       --channel N          override the MIDI channel
       --transpose N        override the Genshin transpose
       --key-mode MODE      override "scancode" or "virtualkey"
+      --no-reconnect       exit instead of waiting for the MIDI device
       --preview NOTE ...   print the mapping for MIDI notes and exit
       --dry-run            log input events instead of sending them
   -q, --quiet              only log warnings and errors
@@ -227,18 +267,28 @@ Run with `verbose = true` (the default) and watch the log. Notes reported as
 Genshin itself limits how fast it accepts input. Dense material is better played
 more slowly, or with fewer simultaneous notes.
 
+**It keeps saying it is waiting for the device**
+The name in `device` does not match any port. The message lists every input
+Windows reports, so copy one from there. Run `--list-devices` to see the same
+list. Use `--no-reconnect` if you would rather it fail immediately.
+
 ## Development
 
 ```bash
 uv sync                     # create .venv and install everything
-uv run pytest               # 153 tests, no real input is sent
+uv run pytest               # 167 tests, no real input is sent
 uv run ruff format .        # formatting
 uv run ruff check .         # linting
 uv run ty check .           # type checking
 ```
 
-The tests inject recording senders, so they never touch the real desktop. The
-MIDI backend is exercised only through `--list-devices`.
+The tests inject recording senders and fake MIDI ports, so they never touch the
+real desktop or the sound card. The MIDI backend is exercised only through
+`--list-devices`.
+
+`tests/test_hotplug.py` covers waiting for a device, disconnects, the silent-port
+watchdog and reconnection. The fake port wakes a blocked reader the way a real
+driver notification does, so those tests are not timing-dependent.
 
 Layout:
 
@@ -248,7 +298,7 @@ Layout:
 | `src/midiator/config.py` | TOML loading, validation and rendering. |
 | `src/midiator/engine.py` | Note-to-input dispatch, mouse vector, main loop. |
 | `src/midiator/notes.py` | The 21-key layout, folding and accidental snapping. |
-| `src/midiator/midi.py` | Device discovery and MIDI message normalisation. |
+| `src/midiator/midi.py` | Device discovery, hot-plug supervision, message normalisation. |
 | `src/midiator/windows/keyboard.py` | Key tables and `SendInput` keyboard events. |
 | `src/midiator/windows/mouse.py` | Mouse flags and `SendInput` mouse events. |
 

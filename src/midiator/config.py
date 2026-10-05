@@ -33,6 +33,17 @@ class MidiSettings:
     """Match ``device`` anywhere in the port name, or require an exact match."""
     channel: int | None = 0
     """MIDI channel to listen on, ``None`` for every channel."""
+    reconnect: bool = True
+    """Wait for the device at startup and reopen it if it disconnects."""
+    retry_seconds: float = 2.0
+    """Seconds between attempts to (re)open the device."""
+    watchdog_seconds: float = 30.0
+    """Seconds without any MIDI message before the port is checked for liveness.
+
+    A device that is unplugged usually makes the port raise immediately, so this
+    only covers the case where WinMM goes quiet without reporting anything. Keep
+    it comfortably longer than your longest pause between notes.
+    """
 
 
 @dataclass(slots=True)
@@ -192,6 +203,10 @@ def _validate(config: Config, path: Path) -> None:
         raise ValueError(f"{path}: [midi].channel must be between 0 and 15, or omitted for all channels")
     if config.midi.substring is False and not config.midi.device:
         raise ValueError(f"{path}: [midi].substring=false needs an exact [midi].device name")
+    if config.midi.retry_seconds <= 0:
+        raise ValueError(f"{path}: [midi].retry_seconds must be greater than 0")
+    if config.midi.watchdog_seconds <= 0:
+        raise ValueError(f"{path}: [midi].watchdog_seconds must be greater than 0")
 
 
 def _toml_value(value: Any) -> str:
@@ -224,6 +239,12 @@ def render_default_config() -> str:
         f"substring = {_toml_value(defaults.midi.substring)}",
         "# MIDI channel 0-15, or comment out to listen on all channels.",
         f"channel = {_toml_value(defaults.midi.channel)}",
+        "# Wait for the device at startup, and reopen it if it disconnects.",
+        f"reconnect = {_toml_value(defaults.midi.reconnect)}",
+        "# Seconds between attempts to open the device.",
+        f"retry_seconds = {_toml_value(defaults.midi.retry_seconds)}",
+        "# Seconds of silence before the port is checked for liveness.",
+        f"watchdog_seconds = {_toml_value(defaults.midi.watchdog_seconds)}",
         "",
         "[windows]",
         "# 'scancode' suits games; 'virtualkey' suits normal applications.",
