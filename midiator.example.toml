@@ -1,0 +1,42 @@
+# MIDIator configuration.
+# Every key is optional; delete a line to fall back to its default.
+
+# 'genshin' maps notes onto a Genshin Impact instrument.
+# 'generic' uses the explicit [binds] tables further down.
+preset = "genshin"
+
+# Print what every note turns into. Handy while setting up.
+verbose = true
+
+[midi]
+# Part of your MIDI device's name, case-insensitive.
+# device = "Casio"
+# Set to false to require the name to match exactly.
+substring = true
+# MIDI channel 0-15, or comment out to listen on all channels.
+channel = 0
+
+[windows]
+# 'scancode' suits games; 'virtualkey' suits normal applications.
+key_mode = "scancode"
+mouse_sensitivity = 4
+mouse_refresh = 0.005
+
+[genshin]
+# Semitones to shift every note by, -48 to 48.
+transpose = 0
+# 'snap' moves black keys to a neighbouring white key; 'skip' drops them.
+accidental = "snap"
+# 'fold' shifts notes outside C3-B5 by octaves; 'skip' drops them.
+out_of_range = "fold"
+# Transpose automatically from the first notes you play.
+auto_transpose = false
+
+# Only used when preset = 'generic'. Notes are MIDI numbers.
+# [binds.keys]
+# 42 = "W"      # F#3 -> W
+# 50 = "SPACE"  # D4  -> space
+# [binds.mouse_buttons]
+# 48 = "LEFT_DOWN"   # C4 -> left click
+# [binds.mouse_movement]
+# 52 = "LEFT"        # E4 -> move the cursor left while held
