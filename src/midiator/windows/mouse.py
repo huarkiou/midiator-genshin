@@ -14,8 +14,36 @@ logger = logging.getLogger(__name__)
 INPUT_MOUSE = 0
 
 
+class MouseButton(Enum):
+    """A physical mouse button, named the way it is written in a config.
+
+    Configuration only ever names the button; whether a press or a release is
+    being sent is the engine's business, so a bind cannot be written with only
+    half of the pair. Each member carries both ``MOUSEINPUT`` flags.
+    """
+
+    LEFT = (0x0002, 0x0004)
+    RIGHT = (0x0008, 0x0010)
+    MIDDLE = (0x0020, 0x0040)
+    X = (0x0080, 0x0100)
+
+    @property
+    def down(self) -> MouseFlag:
+        """The ``dwFlags`` value that presses this button."""
+        return MouseFlag(self.value[0])
+
+    @property
+    def up(self) -> MouseFlag:
+        """The ``dwFlags`` value that releases this button."""
+        return MouseFlag(self.value[1])
+
+
 class MouseFlag(IntEnum):
-    """Values for ``dwFlags`` in Windows ``MOUSEINPUT``."""
+    """Values for ``dwFlags`` in Windows ``MOUSEINPUT``.
+
+    Internal to the Windows layer: configs and logs speak in
+    :class:`MouseButton` and :class:`Direction` instead.
+    """
 
     MOVE = 0x0001
     LEFT_DOWN = 0x0002
@@ -73,6 +101,6 @@ class WindowsMouseSender:
             return
         self._send(dx, dy, MouseFlag.MOVE)
 
-    def button(self, flag: MouseFlag) -> None:
-        """Send a single button event, e.g. :attr:`MouseFlag.LEFT_DOWN`."""
-        self._send(0, 0, int(flag))
+    def button(self, button: MouseButton, pressed: bool) -> None:
+        """Press or release ``button``."""
+        self._send(0, 0, int(button.down if pressed else button.up))

@@ -232,7 +232,7 @@ class TestGenericPreset:
         config = Config(preset="generic", midi=MidiSettings(channel=0))
         config.verbose = False
         config.binds.keys = {42: "W", 45: "SPACE"}
-        config.binds.mouse_buttons = {50: "LEFT_DOWN"}
+        config.binds.mouse_buttons = {50: "LEFT"}
         config.binds.mouse_movement = {52: "LEFT"}
         return Midiator(config, key_sender, mouse_sender)
 
@@ -252,13 +252,91 @@ class TestGenericPreset:
         engine.press(42)
         assert key_sender.presses == ["W"]
 
-    def test_mouse_button_binds(self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender) -> None:
-        from midiator.windows.mouse import MouseFlag
-
+    def test_mouse_button_presses_on_note_on_and_releases_on_note_off(
+        self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender
+    ) -> None:
         engine = self._generic(key_sender, mouse_sender)
         engine.press(50)
-        assert mouse_sender.buttons == [MouseFlag.LEFT_DOWN]
+        assert mouse_sender.buttons == [("LEFT", True)]
+        engine.release(50)
+        assert mouse_sender.buttons == [("LEFT", True), ("LEFT", False)]
         assert key_sender.events == []
+
+    def test_mouse_button_does_not_stay_held_after_all_off(
+        self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender
+    ) -> None:
+        engine = self._generic(key_sender, mouse_sender)
+        engine.press(50)
+        engine.all_off()
+        assert mouse_sender.buttons == [("LEFT", True), ("LEFT", False)]
+
+    def test_all_off_with_nothing_held_emits_nothing(
+        self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender
+    ) -> None:
+        engine = self._generic(key_sender, mouse_sender)
+        engine.all_off()
+        assert key_sender.events == []
+        assert mouse_sender.buttons == []
+
+    def test_a_released_note_does_not_disturb_other_notes(
+        self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender
+    ) -> None:
+        # 45 is bound to a key, not to the mouse, so releasing it must be inert.
+        engine = self._generic(key_sender, mouse_sender)
+        engine.release(45)
+        assert key_sender.events == []
+        assert mouse_sender.buttons == []
+
+    @pytest.mark.parametrize(
+        ("written", "suggested"),
+        [
+            ("LEFT_DOWN", "LEFT"),
+            ("LEFT_UP", "LEFT"),
+            ("LEFT_CLICK", "LEFT"),
+            ("LEFT_RELEASE", "LEFT"),
+            ("RIGHT_DOWN", "RIGHT"),
+            ("MIDDLE_UP", "MIDDLE"),
+        ],
+    )
+    def test_press_release_flag_names_are_rejected_with_a_migration_hint(
+        self,
+        written: str,
+        suggested: str,
+        key_sender: RecordingKeySender,
+        mouse_sender: RecordingMouseSender,
+    ) -> None:
+        config = Config(preset="generic")
+        config.binds.mouse_buttons = {50: written}
+        with pytest.raises(KeyError, match=rf"Use '{suggested}' instead"):
+            Midiator(config, key_sender, mouse_sender)
+
+    def test_movement_binds_are_detected(self, key_sender: RecordingKeySender) -> None:
+        config = Config(preset="generic")
+        assert Midiator(config, key_sender, RecordingMouseSender()).has_movement_binds is False
+        config.binds.mouse_movement = {52: "LEFT"}
+        assert Midiator(config, key_sender, RecordingMouseSender()).has_movement_binds is True
+
+    def test_mouse_thread_is_not_started_without_movement_binds(
+        self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender
+    ) -> None:
+        """The Genshin preset never moves the cursor, so it must not spawn a thread."""
+        engine = make_engine(keys=key_sender, mouse=mouse_sender)
+        assert engine.has_movement_binds is False
+        engine.start_mouse_thread()
+        assert engine._move_thread is None
+
+    def test_mouse_thread_starts_when_movement_is_bound(
+        self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender
+    ) -> None:
+        config = Config(preset="generic")
+        config.verbose = False
+        config.binds.mouse_movement = {52: "LEFT"}
+        engine = Midiator(config, key_sender, mouse_sender)
+        try:
+            engine.start_mouse_thread()
+            assert engine._move_thread is not None
+        finally:
+            engine.stop()
 
     def test_unknown_key_bind_is_rejected(
         self, key_sender: RecordingKeySender, mouse_sender: RecordingMouseSender

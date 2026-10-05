@@ -63,7 +63,8 @@ octaves. There are no black keys.
 | Middle | C4–B4 (60–71) | `A S D F G H J` |
 | High | C5–B5 (72–83) | `Q W E R T Y U` |
 
-![Keybind Diagram](img/keybinds.png)
+The three rows sit on the keyboard where you would expect them: the low register
+on the bottom letter row, the middle on the home row, and the high on the top row.
 
 Because the game has no black keys, an arbitrary MIDI performance cannot be
 played literally. MIDIator fixes this in two steps, governed by two settings:
@@ -196,26 +197,34 @@ scripts.
 
 Set `preset = "generic"` to bind notes to keys and mouse actions by hand. This
 is the original MIDIator behaviour, useful for using a piano as a general input
-device.
+device. The diagram below is the upstream project's original default binds for
+this mode:
+
+![Keybind Diagram](img/keybinds.png)
 
 ```toml
 preset = "generic"
 
 [binds.keys]
-42 = "W"          # F#3 -> W
-45 = "SPACE"      # A3  -> space
+42 = "W"       # F#2 -> W
+45 = "SPACE"   # A2  -> space
 
 [binds.mouse_buttons]
-50 = "LEFT_DOWN"  # D4 -> press the left mouse button
+50 = "LEFT"    # D3 -> left click, held for as long as the note is
 
 [binds.mouse_movement]
-52 = "LEFT"       # hold E4 to move the cursor left
+52 = "LEFT"    # hold E3 to move the cursor left
 ```
 
-Notes are MIDI numbers, and key names come from
+Notes are MIDI numbers (60 is C4). Key names come from
 [`KEYBOARD`](src/midiator/windows/keyboard.py) — letters, `SPACE`,
 `LSHIFT`, `F1`, `UP`, `NUMPAD0` and so on. A `KEY_` prefix is accepted, so
 `"KEY_W"` and `"W"` are the same key.
+
+Mouse buttons are named by direction only: `LEFT`, `RIGHT`, `MIDDLE` or `X`.
+MIDIator presses the button on note-on and releases it on note-off, so there is
+no way to accidentally write only half of a click. Writing a flag name such as
+`LEFT_DOWN` is an error, and the message says what to write instead.
 
 Mouse movement binds are directions (`LEFT`, `RIGHT`, `UP`, `DOWN`). Holding
 several at once adds up, and releasing one keeps the others moving.
@@ -276,7 +285,7 @@ list. Use `--no-reconnect` if you would rather it fail immediately.
 
 ```bash
 uv sync                     # create .venv and install everything
-uv run pytest               # 167 tests, no real input is sent
+uv run pytest               # full suite; sends no real input
 uv run ruff format .        # formatting
 uv run ruff check .         # linting
 uv run ty check .           # type checking

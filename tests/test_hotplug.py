@@ -13,7 +13,7 @@ from typing import Any
 import mido
 import pytest
 
-from midiator.midi import MidiDeviceError, MidiSupervisor, read_messages
+from midiator.midi import DeviceLost, MidiDeviceError, MidiSupervisor, read_messages
 
 
 def field(message: mido.Message, name: str) -> Any:
@@ -31,6 +31,25 @@ WATCHDOG = 0.15
 REALISTIC_WATCHDOG = 10.0
 
 
+class FakeRt:
+    """The ``_rt`` rtmidi object behind a fake port.
+
+    The supervisor asks this whether the device is still plugged in, so a fake
+    port needs one for the liveness probe to answer at all. Setting
+    :attr:`present` to ``False`` simulates an unplug that Windows reports only
+    through the device list.
+    """
+
+    def __init__(self, name: str, present: bool = True) -> None:
+        self._name = name
+        self.present = present
+        self.probes = 0
+
+    def get_ports(self) -> list[str]:
+        self.probes += 1
+        return [self._name] if self.present else []
+
+
 class FakePort:
     """A stand-in for a ``mido`` input port that a test drives by hand.
 
@@ -39,13 +58,15 @@ class FakePort:
     ``__iter__`` notices immediately instead of waiting out a poll interval.
     """
 
-    def __init__(self, name: str = "Fake MIDI") -> None:
+    def __init__(self, name: str = "Fake MIDI", present: bool = True) -> None:
         self.name = name
         self.sent: list[mido.Message] = []
         self.closed = False
         self._wake = threading.Event()
         self._error: BaseException | None = None
         self._unplugged = False
+        #: Set to ``None`` to simulate a backend that cannot be probed at all.
+        self._rt: FakeRt | None = FakeRt(name, present)
 
     def send(self, message: mido.Message) -> None:
         """Queue a message for whoever is iterating this port."""
@@ -271,26 +292,70 @@ class TestDisconnect:
         assert not thread.is_alive()
         assert first.closed
 
-    def test_watchdog_notices_a_silently_dead_port(self) -> None:
-        stuck, healthy = StubbornPort("Stuck"), FakePort("Healthy")
-        # Queue the message before the port is opened, so it is delivered the
-        # moment the healthy port is iterated and cannot race the watchdog.
-        healthy.send(mido.Message("note_on", note=67, velocity=100))
-        device = FakeDevice([stuck, healthy])
+    def test_watchdog_keeps_an_idle_but_present_device(self) -> None:
+        """The bug this probe exists to fix: silence is not a disconnect.
+
+        A port that goes quiet while Windows still lists the device must be left
+        alone, so an idle keyboard cannot cut off a sustained note.
+        """
+        idle = StubbornPort("Idle")
+        device = FakeDevice([idle])
         supervisor = make_supervisor(device)
         recorder = Recorder()
         thread = run_in_background(supervisor, recorder)
 
         assert supervisor.wait_until_ready(timeout=5.0)
-        # The stuck port never yields and never raises, so only the watchdog can
-        # notice, and it must do so without any user action.
+        # Wait for several watchdog periods to elapse.
+        assert wait_for(lambda: idle._rt is not None and idle._rt.probes >= 2, timeout=5.0)
+
+        assert recorder.disconnects == [], "an idle device must not be treated as lost"
+        assert idle.closed is False, "its port must stay open"
+        assert device.opened == [idle], "no reconnect may happen"
+        assert device.attempts == 1
+
+        supervisor.stop()
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+
+    def test_watchdog_reconnects_once_the_device_is_really_gone(self) -> None:
+        gone, healthy = StubbornPort("Gone"), FakePort("Healthy")
+        healthy.send(mido.Message("note_on", note=67, velocity=100))
+        device = FakeDevice([gone, healthy])
+        supervisor = make_supervisor(device)
+        recorder = Recorder()
+        thread = run_in_background(supervisor, recorder)
+
+        assert supervisor.wait_until_ready(timeout=5.0)
+        # Windows stops listing the device; only then may the port be torn down.
+        assert gone._rt is not None
+        gone._rt.present = False
+
         assert wait_for(lambda: len(recorder.disconnects) == 1, timeout=5.0)
-        assert recorder.disconnects[0] is None
-        assert stuck.closed
+        assert isinstance(recorder.disconnects[0], DeviceLost)
+        assert gone.closed
 
         assert wait_for(lambda: len(device.opened) == 2)
         assert wait_for(lambda: len(recorder.messages) == 1)
         assert recorder.messages[0].hex() == "90 43 64"
+
+        supervisor.stop()
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+
+    def test_watchdog_reopens_the_port_when_the_backend_cannot_be_probed(self) -> None:
+        unprobeable = StubbornPort("Opaque")
+        unprobeable._rt = None
+        healthy = FakePort("Healthy")
+        device = FakeDevice([unprobeable, healthy])
+        supervisor = make_supervisor(device)
+        recorder = Recorder()
+        thread = run_in_background(supervisor, recorder)
+
+        assert supervisor.wait_until_ready(timeout=5.0)
+        # With no probe available a permanently silent port must still recover.
+        assert wait_for(lambda: len(recorder.disconnects) == 1, timeout=5.0)
+        assert recorder.disconnects[0] is None
+        assert unprobeable.closed
 
         supervisor.stop()
         thread.join(timeout=5.0)

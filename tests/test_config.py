@@ -123,6 +123,29 @@ class TestParsing:
         path = write(tmp_path, '[binds.keys]\n"C4" = "W"\n')
         assert load_config(path).binds.keys == {}
 
+    def test_absent_bind_tables_are_silent(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Most configs bind only one kind of target, so a missing table is normal."""
+        import logging as _logging
+
+        path = write(tmp_path, '[binds.keys]\n42 = "W"\n')
+        with caplog.at_level(_logging.WARNING):
+            config = load_config(path)
+        assert config.binds.keys == {42: "W"}
+        assert config.binds.mouse_buttons == {}
+        assert config.binds.mouse_movement == {}
+        assert "must be a table" not in caplog.text, "an absent table is not a mistake"
+
+    def test_a_wrongly_typed_bind_table_is_still_reported(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging as _logging
+
+        path = write(tmp_path, 'binds = "not a table"\n')
+        with caplog.at_level(_logging.WARNING):
+            config = load_config(path)
+        assert config.binds.keys == {}
+        assert "must be a table" in caplog.text
+
 
 class TestValidation:
     @pytest.mark.parametrize(

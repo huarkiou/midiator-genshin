@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from midiator.windows.keyboard import Key
-from midiator.windows.mouse import MouseFlag
+from midiator.windows.mouse import MouseButton
 
 
 class RecordingKeySender:
@@ -34,13 +34,13 @@ class RecordingMouseSender:
 
     def __init__(self) -> None:
         self.moves: list[tuple[int, int]] = []
-        self.buttons: list[MouseFlag] = []
+        self.buttons: list[tuple[str, bool]] = []
 
     def move(self, dx: int, dy: int) -> None:
         self.moves.append((dx, dy))
 
-    def button(self, flag: MouseFlag) -> None:
-        self.buttons.append(flag)
+    def button(self, button: MouseButton, pressed: bool) -> None:
+        self.buttons.append((button.name, pressed))
 
     def clear(self) -> None:
         self.moves.clear()

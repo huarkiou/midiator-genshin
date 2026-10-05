@@ -140,12 +140,17 @@ def main(argv: list[str] | None = None) -> int:
     keys = WindowsKeySender(mode=config.windows.key_mode, dry_run=args.dry_run)
     mouse = WindowsMouseSender(dry_run=args.dry_run)
 
-    if args.preview:
-        for line in preview(list(args.preview), config):
-            logger.info("%s", line)
-        return 0
-
-    engine = Midiator(config, keys, mouse)
+    try:
+        if args.preview:
+            for line in preview(list(args.preview), config):
+                logger.info("%s", line)
+            return 0
+        engine = Midiator(config, keys, mouse)
+    except KeyError as error:
+        # A bad bind name is a configuration mistake, so report it plainly
+        # instead of letting a traceback surface.
+        logger.error("Invalid binding: %s", error.args[0] if error.args else error)
+        return 2
 
     from midiator.midi import MidiDeviceError, MidiInput, MidiSupervisor, open_input
 
@@ -178,7 +183,10 @@ def main(argv: list[str] | None = None) -> int:
     engine.describe_setup()
     engine.start_mouse_thread()
     if config.midi.reconnect:
-        logger.info("Watching for the MIDI device; unplugging it is safe, MIDIator will wait and reconnect.")
+        logger.info(
+            "Watching for the MIDI device; starting before plugging it in is fine, "
+            "and unplugging it mid-session is safe."
+        )
     logger.info("Handling MIDI events. Press Ctrl+C to stop.")
 
     try:

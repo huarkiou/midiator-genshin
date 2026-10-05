@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -25,6 +26,44 @@ class DeviceLost(RuntimeError):
 #: How often the main loop checks for shutdown while waiting for messages. Keeps
 #: Ctrl+C responsive without turning the wait into a busy loop.
 STOP_POLL_SECONDS = 0.25
+
+#: RtMidi appends the device index to port names, e.g. "DOREMiDi 0". The index
+#: shifts when other devices are plugged in, so it is stripped before comparing.
+_PORT_INDEX = re.compile(r"\s+\d+$")
+
+
+def _normalise_port_name(name: str) -> str:
+    """Lower-case ``name`` and drop RtMidi's trailing device index."""
+    return _PORT_INDEX.sub("", name.strip().lower())
+
+
+def device_is_present(port: MidiInput) -> bool | None:
+    """Ask Windows whether ``port`` is still plugged in, without disturbing it.
+
+    ``True`` means the device is there, ``False`` that it is gone, and ``None``
+    that the question cannot be answered on this backend (a virtual port, say).
+
+    This exists because silence is not evidence of a disconnect: an idle
+    keyboard is silent too. It queries the rtmidi device list, which re-reads
+    WinMM every call (about 40 microseconds) and never touches the open handle,
+    so it is safe to call from the main loop while the reader thread is blocked.
+
+    It must be called *before* the port is closed: rtmidi deletes the underlying
+    object on close, and probing afterwards crashes the process.
+    """
+    rt = getattr(port, "_rt", None)
+    get_ports = getattr(rt, "get_ports", None)
+    if get_ports is None:
+        return None
+    try:
+        names = get_ports()
+    except Exception:
+        logger.debug("Device probe failed; treating liveness as unknown", exc_info=True)
+        return None
+    if not isinstance(names, list):
+        return None
+    wanted = _normalise_port_name(str(getattr(port, "name", "")))
+    return wanted in {_normalise_port_name(str(available)) for available in names}
 
 
 @runtime_checkable
@@ -284,7 +323,7 @@ class MidiSupervisor:
 
             try:
                 self._start_reader(port)
-                self._read_until_lost(generation, name, handle)
+                self._read_until_lost(generation, port, name, handle)
             except KeyboardInterrupt:
                 self._close_port(port)
                 raise
@@ -311,12 +350,13 @@ class MidiSupervisor:
     def _read_until_lost(
         self,
         generation: int,
+        port: MidiInput,
         name: str,
         handle: Callable[[mido.Message], None],
     ) -> None:
-        """Consume the queue until the device looks lost or MIDIator is stopping."""
+        """Consume the queue until the device is gone or MIDIator is stopping."""
         # Wake often enough that stop() is honoured promptly, while only treating
-        # a full watchdog_seconds of silence as suspicious.
+        # a full watchdog_seconds of silence as worth investigating.
         tick = min(self.watchdog_seconds, STOP_POLL_SECONDS)
         silent_for = 0.0
 
@@ -327,16 +367,27 @@ class MidiSupervisor:
                 silent_for += tick
                 if silent_for < self.watchdog_seconds:
                     continue
-                # Silence can mean the device was unplugged without WinMM saying
-                # so. Closing the port wakes the reader, which then reports the
-                # error, so ask it what happened before assuming anything.
-                logger.info(
-                    "No MIDI messages from %r for %.1fs; checking whether the device is still there.",
-                    name,
-                    self.watchdog_seconds,
-                )
-                self._close_port(self._current_port)
-                self._last_error = self._collect_reader_error(generation)
+                silent_for = 0.0
+
+                # Silence alone proves nothing: an idle keyboard is silent too.
+                # Ask Windows whether the device is still there, and only tear
+                # the port down when it is genuinely gone.
+                present = device_is_present(port)
+                if present is True:
+                    logger.debug("No messages from %r for %.1fs, but it is still present.", name, tick)
+                    continue
+                if present is None:
+                    logger.info(
+                        "No MIDI messages from %r for %.1fs and this backend cannot be probed; "
+                        "reopening the port to check it.",
+                        name,
+                        self.watchdog_seconds,
+                    )
+                    # Do not claim DeviceLost: silence is all we actually know.
+                    self._last_error = None
+                    return
+                logger.warning("MIDI device %r is no longer present.", name)
+                self._last_error = DeviceLost(f"{name} is no longer listed by the MIDI backend")
                 return
 
             silent_for = 0.0
@@ -352,18 +403,6 @@ class MidiSupervisor:
             else:
                 logger.info("MIDI device %r stopped producing messages.", name)
             return
-
-    def _collect_reader_error(self, generation: int) -> BaseException | None:
-        """Give the reader thread a moment to report why the port went quiet."""
-        deadline = self._clock() + 0.25
-        while self._clock() < deadline:
-            try:
-                item_generation, connected, _message, error = self._queue.get(timeout=0.05)
-            except queue.Empty:
-                continue
-            if item_generation == generation and not connected:
-                return error
-        return None
 
 
 def _field(message: mido.Message, name: str) -> Any:

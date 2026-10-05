@@ -109,7 +109,13 @@ def _build(cls: type[Any], data: Any, where: str) -> Any:
 
 
 def _bind_table(data: Any, name: str) -> dict[int, str]:
-    """Convert ``{"C4" or 60 = "Z"}`` into ``{60: "Z"}``."""
+    """Convert ``{"C4" or 60 = "Z"}`` into ``{60: "Z"}``.
+
+    An absent table is normal — most configs bind only keys, or only movement —
+    so ``None`` is returned quietly rather than warned about.
+    """
+    if data is None:
+        return {}
     if not isinstance(data, dict):
         logger.warning("[binds].%s must be a table; ignoring", name)
         return {}
@@ -168,6 +174,8 @@ def load_config(path: str | Path | None = None) -> Config:
                 mouse_buttons=_bind_table(table.get("mouse_buttons"), "mouse_buttons"),
                 mouse_movement=_bind_table(table.get("mouse_movement"), "mouse_movement"),
             )
+        else:
+            logger.warning("[binds] must be a table; ignoring")
 
     _validate(config, resolved)
     return config
@@ -263,13 +271,16 @@ def render_default_config() -> str:
         f"auto_transpose = {_toml_value(defaults.genshin.auto_transpose)}",
         "",
         "# Only used when preset = 'generic'. Notes are MIDI numbers.",
+        "# MIDI 60 is C4, so 42 is F#2 and 52 is E3.",
         "# [binds.keys]",
-        '# 42 = "W"      # F#3 -> W',
-        '# 50 = "SPACE"  # D4  -> space',
+        '# 42 = "W"      # F#2 -> W',
+        '# 50 = "SPACE"  # D3  -> space',
         "# [binds.mouse_buttons]",
-        '# 48 = "LEFT_DOWN"   # C4 -> left click',
+        "# Name the button only; MIDIator presses on note-on and releases on",
+        "# note-off, so there is no way to write half of a click.",
+        '# 48 = "LEFT"   # C3 -> left click',
         "# [binds.mouse_movement]",
-        '# 52 = "LEFT"        # E4 -> move the cursor left while held',
+        '# 52 = "LEFT"   # E3 -> move the cursor left while held',
         "",
     ]
     return "\n".join(lines)

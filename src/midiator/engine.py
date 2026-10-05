@@ -5,18 +5,15 @@ from __future__ import annotations
 import logging
 import threading
 from collections import Counter
-from collections.abc import Iterator
 from dataclasses import dataclass
 from math import sqrt
 from typing import Protocol, runtime_checkable
-
-import mido
 
 from midiator.config import Config
 from midiator.midi import HeldNotes
 from midiator.notes import GenshinInstrumentMapping, NotePlan, pitch_name, suggest_transpose
 from midiator.windows.keyboard import Key, lookup_key
-from midiator.windows.mouse import Direction, MouseFlag
+from midiator.windows.mouse import Direction, MouseButton
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +36,33 @@ class MouseSender(Protocol):
     def move(self, dx: int, dy: int) -> None:
         """Move the cursor by ``(dx, dy)``."""
 
-    def button(self, flag: MouseFlag) -> None:
-        """Send a mouse button event."""
+    def button(self, button: MouseButton, pressed: bool) -> None:
+        """Press or release ``button``."""
+
+
+#: Suffixes upstream MIDIator used to name press/release flags separately.
+_FLAG_SUFFIXES = ("_DOWN", "_UP", "_CLICK", "_RELEASE", "_PRESS", "_RELEASED")
+
+
+def _unknown_button_message(name: str) -> str:
+    """Explain a rejected ``[binds.mouse_buttons]`` value.
+
+    Upstream MIDIator configured the press and release flags separately, so old
+    configs name a flag like ``LEFT_DOWN`` or ``LEFT_CLICK``. Point at the button
+    name that replaces it rather than leaving the user to guess which half is
+    wrong.
+    """
+    known = ", ".join(b.name for b in MouseButton)
+    cleaned = name.strip().upper()
+    for suffix in _FLAG_SUFFIXES:
+        if cleaned.endswith(suffix):
+            button = cleaned[: -len(suffix)]
+            if button in MouseButton.__members__:
+                return (
+                    f"{name} is a press/release flag. Use {button!r} instead: MIDIator presses on "
+                    f"note-on and releases on note-off, so only the button name belongs here."
+                )
+    return f"unknown mouse button {name!r}; use one of: {known}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,20 +72,20 @@ class Target:
     kind: str
     """``"key"``, ``"button"``, ``"move"`` or ``"unbound"``."""
     key: Key | None = None
-    button: MouseFlag | None = None
+    button: MouseButton | None = None
     direction: Direction | None = None
     plan: NotePlan | None = None
 
     @property
     def label(self) -> str:
-        """A short name for the target, for logs."""
+        """A short name for the target, for logs and previews."""
         if self.kind == "key" and self.key is not None:
             return f"Key {self.key.name}"
         if self.kind == "button" and self.button is not None:
             return f"Mouse {self.button.name}"
         if self.kind == "move" and self.direction is not None:
             return f"Mouse {self.direction.name}"
-        return "Key not bound."
+        return "not bound"
 
 
 class Midiator:
@@ -100,6 +122,8 @@ class Midiator:
 
         #: MIDI note -> the key that note currently holds down.
         self._held_keys: dict[int, Key] = {}
+        #: MIDI note -> the mouse button that note currently holds down.
+        self._held_buttons: dict[int, MouseButton] = {}
         #: How many notes are pushing the cursor in each direction.
         self._move_counts: Counter[Direction] = Counter()
         self._move_thread: threading.Thread | None = None
@@ -115,15 +139,15 @@ class Midiator:
             return {}
         return {note: lookup_key(name) for note, name in self.config.binds.keys.items()}
 
-    def _build_button_binds(self) -> dict[int, MouseFlag]:
+    def _build_button_binds(self) -> dict[int, MouseButton]:
         if self.genshin is not None:
             return {}
-        binds: dict[int, MouseFlag] = {}
+        binds: dict[int, MouseButton] = {}
         for note, name in self.config.binds.mouse_buttons.items():
             try:
-                binds[note] = MouseFlag[name.strip().upper()]
+                binds[note] = MouseButton[name.strip().upper()]
             except KeyError:
-                raise KeyError(f"unknown mouse button {name!r}; try one of {[f.name for f in MouseFlag]}") from None
+                raise KeyError(_unknown_button_message(name)) from None
         return binds
 
     def _build_move_binds(self) -> dict[int, Direction]:
@@ -201,7 +225,8 @@ class Midiator:
         if target.kind == "key":
             self._press_key(note, target)
         elif target.kind == "button" and target.button is not None:
-            self.mouse.button(target.button)
+            self.mouse.button(target.button, True)
+            self._held_buttons[note] = target.button
             self.stats["buttons"] += 1
         elif target.kind == "move" and target.direction is not None:
             self._move_counts[target.direction] += 1
@@ -229,6 +254,11 @@ class Midiator:
             self.keys.send(key, False)
             return
 
+        button = self._held_buttons.pop(note, None) or self._button_binds.get(note)
+        if button is not None:
+            self.mouse.button(button, False)
+            return
+
         direction = self._move_binds.get(note)
         if direction is not None and self._move_counts[direction] > 0:
             self._move_counts[direction] -= 1
@@ -244,12 +274,24 @@ class Midiator:
             self.release(note)
 
     def all_off(self) -> None:
-        """Release every key and stop any mouse movement this engine started."""
+        """Release every key and mouse button, and stop mouse movement.
+
+        Called on shutdown and on device loss, so nothing is left latched down
+        while MIDIator is not listening.
+        """
         for key in self._held_keys.values():
             self.keys.send(key, False)
         self._held_keys.clear()
+        for button in self._held_buttons.values():
+            self.mouse.button(button, False)
+        self._held_buttons.clear()
         self._move_counts.clear()
         self.notes.all_off()
+
+    @property
+    def has_movement_binds(self) -> bool:
+        """Whether any note is bound to move the cursor."""
+        return bool(self._move_binds)
 
     # -- auto transpose ---------------------------------------------------
 
@@ -305,7 +347,12 @@ class Midiator:
             self.mouse.move(int(dx), int(dy))
 
     def start_mouse_thread(self) -> None:
-        """Begin moving the cursor in the background."""
+        """Begin moving the cursor in the background, if anything can move it."""
+        if not self.has_movement_binds:
+            # The Genshin preset never moves the cursor, and a generic config
+            # need not either, so do not spin up a thread that can only idle.
+            self.log("No mouse movement binds; not starting the mouse handler.")
+            return
         if self._move_thread is not None:
             return
         self._stop.clear()
@@ -313,22 +360,7 @@ class Midiator:
         self._move_thread.start()
         self.log("Mouse handler thread started.")
 
-    # -- main loop --------------------------------------------------------
-
-    def run(self, messages: Iterator[mido.Message]) -> None:
-        """Consume ``messages`` until the iterator ends or :meth:`stop` is called."""
-        self.describe_setup()
-        self.start_mouse_thread()
-        self.log("Handling MIDI events. Press Ctrl+C to stop.")
-        try:
-            for message in messages:
-                if self._stop.is_set():
-                    break
-                transition = self.notes.update(message)
-                if transition is not None:
-                    self.handle(transition)
-        finally:
-            self.stop()
+    # -- shutdown ---------------------------------------------------------
 
     def stop(self) -> None:
         """Release everything and stop the mouse thread. Safe to call twice."""
@@ -349,10 +381,35 @@ class Midiator:
 
 
 def preview(notes: list[int], config: Config) -> list[str]:
-    """Describe how ``notes`` would map, without sending any input."""
-    mapping = GenshinInstrumentMapping(
-        transpose=config.genshin.transpose,
-        accidental=config.genshin.accidental,
-        out_of_range=config.genshin.out_of_range,
-    )
-    return [mapping.plan(note).summary for note in notes]
+    """Describe how ``notes`` would map, without sending any input.
+
+    Respects the configured preset: the Genshin layout under ``"genshin"``, the
+    explicit binds under ``"generic"``.
+    """
+    if config.preset == "genshin":
+        mapping = GenshinInstrumentMapping(
+            transpose=config.genshin.transpose,
+            accidental=config.genshin.accidental,
+            out_of_range=config.genshin.out_of_range,
+        )
+        return [mapping.plan(note).summary for note in notes]
+
+    engine = Midiator(config, _NullKeySender(), _NullMouseSender())
+    return [f"{pitch_name(note):>4} -> {engine.resolve(note).label}" for note in notes]
+
+
+class _NullKeySender:
+    """A :class:`KeySender` that drops events; used by :func:`preview`."""
+
+    def send(self, key: Key, pressed: bool) -> None:
+        """Do nothing."""
+
+
+class _NullMouseSender:
+    """A :class:`MouseSender` that drops events; used by :func:`preview`."""
+
+    def move(self, dx: int, dy: int) -> None:
+        """Do nothing."""
+
+    def button(self, button: MouseButton, pressed: bool) -> None:
+        """Do nothing."""

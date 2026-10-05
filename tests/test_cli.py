@@ -50,6 +50,36 @@ class TestBadConfig:
         config.write_text("[genshin]\ntranspose = 500\n", encoding="utf-8")
         assert main(["--preview", "60", "-c", str(config)]) == 2
 
+    def test_unknown_key_bind_reports_cleanly(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        config = tmp_path / "midiator.toml"
+        config.write_text('preset = "generic"\n[binds.keys]\n42 = "BANANA"\n', encoding="utf-8")
+        assert main(["--preview", "42", "-c", str(config)]) == 2
+        output = capsys.readouterr().out
+        assert "Invalid binding" in output
+        assert "Traceback" not in output
+
+    def test_press_release_flag_bind_reports_the_replacement(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = tmp_path / "midiator.toml"
+        config.write_text('preset = "generic"\n[binds.mouse_buttons]\n48 = "LEFT_DOWN"\n', encoding="utf-8")
+        assert main(["--preview", "48", "-c", str(config)]) == 2
+        output = capsys.readouterr().out
+        assert "Use 'LEFT' instead" in output
+        assert "Traceback" not in output
+
+    def test_generic_preview_shows_bind_targets(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        config = tmp_path / "midiator.toml"
+        config.write_text(
+            'preset = "generic"\n[binds.keys]\n60 = "W"\n[binds.mouse_buttons]\n62 = "LEFT"\n',
+            encoding="utf-8",
+        )
+        assert main(["--preview", "60", "62", "99", "-c", str(config)]) == 0
+        output = capsys.readouterr().out
+        assert "Key W" in output
+        assert "Mouse LEFT" in output
+        assert "not bound" in output
+
 
 class TestParser:
     def test_defaults_are_all_none_so_overrides_are_opt_in(self) -> None:

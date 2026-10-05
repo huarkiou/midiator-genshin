@@ -39,10 +39,13 @@ out_of_range = "fold"
 auto_transpose = false
 
 # Only used when preset = 'generic'. Notes are MIDI numbers.
+# MIDI 60 is C4, so 42 is F#2 and 52 is E3.
 # [binds.keys]
-# 42 = "W"      # F#3 -> W
-# 50 = "SPACE"  # D4  -> space
+# 42 = "W"      # F#2 -> W
+# 50 = "SPACE"  # D3  -> space
 # [binds.mouse_buttons]
-# 48 = "LEFT_DOWN"   # C4 -> left click
+# Name the button only; MIDIator presses on note-on and releases on
+# note-off, so there is no way to write half of a click.
+# 48 = "LEFT"   # C3 -> left click
 # [binds.mouse_movement]
-# 52 = "LEFT"        # E4 -> move the cursor left while held
+# 52 = "LEFT"   # E3 -> move the cursor left while held
