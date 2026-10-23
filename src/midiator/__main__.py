@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 
 import mido
 
 from midiator.config import DEFAULT_CONFIG_NAME, Config, load_config, write_default_config
+from midiator.logsetup import background_logging
 
 logger = logging.getLogger("midiator")
 
@@ -54,17 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-q", "--quiet", action="store_true", help="only log warnings and errors")
     parser.add_argument("-v", "--verbose", action="store_true", help="log debug detail")
     parser.add_argument("--dry-run", action="store_true", help="log input events instead of sending them")
+    parser.add_argument(
+        "--latency",
+        action="store_true",
+        help="print a live table of how long MIDIator takes per note, and of SendInput itself",
+    )
     return parser
-
-
-def _configure_logging(quiet: bool, verbose: bool) -> None:
-    if verbose:
-        level = logging.DEBUG
-    elif quiet:
-        level = logging.WARNING
-    else:
-        level = logging.INFO
-    logging.basicConfig(level=level, format="%(message)s", stream=sys.stdout, force=True)
 
 
 def _apply_overrides(config: Config, args: argparse.Namespace) -> Config:
@@ -104,8 +99,14 @@ def main(argv: list[str] | None = None) -> int:
     """Run the command-line interface. Returns a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    _configure_logging(args.quiet, args.verbose)
+    # Logging runs on a background thread, so a slow or selected console can
+    # never delay the input it is describing.
+    with background_logging(args.quiet, args.verbose):
+        return _run(args)
 
+
+def _run(args: argparse.Namespace) -> int:
+    """Do the work behind :func:`main`, with logging already configured."""
     if args.init:
         destination = args.config or Path.cwd() / DEFAULT_CONFIG_NAME
         try:
@@ -118,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Imported late so that --list-devices, --init and --preview work without
     # touching the Windows input layer.
-    from midiator.engine import Midiator, preview
+    from midiator.engine import KeySender, Midiator, preview
+    from midiator.latency import LatencyMeter, TimedSender
     from midiator.windows.keyboard import WindowsKeySender
     from midiator.windows.mouse import WindowsMouseSender
 
@@ -140,12 +142,17 @@ def main(argv: list[str] | None = None) -> int:
     keys = WindowsKeySender(mode=config.windows.key_mode, dry_run=args.dry_run)
     mouse = WindowsMouseSender(dry_run=args.dry_run)
 
+    # Only build the meter when it was asked for: on the normal path the sender
+    # stays a plain WindowsKeySender with nothing extra in front of SendInput.
+    meter = LatencyMeter() if args.latency else None
+    sender: KeySender = keys if meter is None else TimedSender(keys, meter)
+
     try:
         if args.preview:
             for line in preview(list(args.preview), config):
                 logger.info("%s", line)
             return 0
-        engine = Midiator(config, keys, mouse)
+        engine = Midiator(config, sender, mouse)
     except KeyError as error:
         # A bad bind name is a configuration mistake, so report it plainly
         # instead of letting a traceback surface.
@@ -158,9 +165,12 @@ def main(argv: list[str] | None = None) -> int:
         return open_input(config.midi.device, substring=config.midi.substring)
 
     def handle(message: mido.Message) -> None:
+        started = meter.now() if meter is not None else 0.0
         transition = engine.notes.update(message)
         if transition is not None:
             engine.handle(transition)
+        if meter is not None:
+            meter.record_internal(meter.now() - started)
 
     def announce_waiting(error: MidiDeviceError) -> None:
         logger.info("%s", error)
@@ -188,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
             "and unplugging it mid-session is safe."
         )
     logger.info("Handling MIDI events. Press Ctrl+C to stop.")
+    if meter is not None:
+        meter.start()
 
     try:
         supervisor.run(handle, on_disconnect=on_disconnect, on_waiting=announce_waiting)
@@ -199,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         engine.stop()
+        if meter is not None:
+            meter.stop()
     return 0
 
 

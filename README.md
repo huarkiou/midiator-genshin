@@ -75,6 +75,10 @@ refused, fall back to doing it by hand:
 Either way you get a console window showing the log. Leave it open while you
 play; closing it stops MIDIator.
 
+Switches are passed straight through, so `run_as_admin.bat --latency -q` starts
+the same way with the latency table on and the per-note log off. A desktop
+shortcut can carry them in its **Target** field, which keeps the double-click.
+
 ## Genshin Impact preset
 
 ### The layout
@@ -167,6 +171,10 @@ accidental = "snap"          # "snap" or "skip"
 out_of_range = "fold"        # "fold" or "skip"
 auto_transpose = false
 ```
+
+`verbose` prints a line per note. Those lines are written by a background thread,
+so a slow console — or one with a text selection, which blocks output outright —
+cannot delay the notes it is describing.
 
 ### Why `key_mode` matters
 
@@ -270,12 +278,27 @@ uv run midiator [options]
       --no-reconnect       exit instead of waiting for the MIDI device
       --preview NOTE ...   print the mapping for MIDI notes and exit
       --dry-run            log input events instead of sending them
+      --latency            print a live table of MIDIator's own per-note time
   -q, --quiet              only log warnings and errors
   -v, --verbose            log debug detail
 ```
 
 `--dry-run` is the safe way to check a mapping: it exercises the whole
 translation path and prints the exact scan codes, but sends nothing.
+
+`--latency` prints one row per second while you play:
+
+```
+Latency meter: one row every 1s. 'internal' is MIDIator's own time per note, from MIDI message to key sent.
+ 38 ev  internal p50   0.04ms p95   0.07ms max   0.10ms  SendInput p50   0.01ms max   0.05ms
+```
+
+`internal` covers everything MIDIator does between the MIDI message arriving and
+the key being sent, including the `SendInput` call; the last two columns are
+that call on its own. A `SendInput` column that is far larger than `internal`
+means something is intercepting input — a low-level keyboard hook, an overlay,
+or a game busy for a whole frame. See [Troubleshooting](#troubleshooting) for
+what to do with the numbers.
 
 ## Troubleshooting
 
@@ -296,6 +319,28 @@ If key presses still do not register, try `key_mode = "virtualkey"`.
 Run with `verbose = true` (the default) and watch the log. Notes reported as
 `skipped` have no key under `accidental = "skip"`; switch to `"snap"` or adjust
 `transpose`.
+
+**Playing feels delayed**
+Run with `--latency` and play for a few seconds. If `internal` sits well under a
+millisecond — it is about 0.2 ms on a normal machine — then MIDIator is not the
+delay, and the time is going somewhere between the key press and your ears:
+
+- **The audio output.** USB speakers, HDMI into a TV or monitor, and Bluetooth
+  all add tens of milliseconds, and they are what a musician hears. Try wired
+  headphones in the motherboard's jack and compare.
+- **The game's frame pacing.** Input is handled once per frame: 17 ms at 60 fps,
+  33 ms at 30 fps, before any of its own audio buffering.
+- **The Windows MIDI stack.** On Windows 11 24H2 and later, WinMM is served by
+  the new MIDI service, and Microsoft notes that device latency on that path
+  "can vary significantly from device to device and driver to driver". To rule it
+  out, add a `UseLegacyMidi` DWORD of `1` under
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Drivers32`, reboot, and
+  play again; delete the value to go back. Ports stop being multi-client in that
+  mode, which MIDIator does not mind.
+
+If `internal` is large instead, look at the `SendInput` columns: the time is
+being spent in the injection call, where a keyboard hook or a busy game is the
+usual cause.
 
 **Chords drop notes**
 Genshin itself limits how fast it accepts input. Dense material is better played
@@ -331,6 +376,8 @@ Layout:
 | `src/midiator/__main__.py` | Command-line interface. |
 | `src/midiator/config.py` | TOML loading, validation and rendering. |
 | `src/midiator/engine.py` | Note-to-input dispatch, mouse vector, main loop. |
+| `src/midiator/latency.py` | The `--latency` table: per-note timing and its thread. |
+| `src/midiator/logsetup.py` | Background log writing, so a console can never delay input. |
 | `src/midiator/notes.py` | The 21-key layout, folding and accidental snapping. |
 | `src/midiator/midi.py` | Device discovery, hot-plug supervision, message normalisation. |
 | `src/midiator/windows/keyboard.py` | Key tables and `SendInput` keyboard events. |

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import time
+from collections.abc import Iterator
 from typing import TypedDict, Unpack
 
 import mido
@@ -11,6 +14,7 @@ from conftest import RecordingKeySender, RecordingMouseSender
 from midiator.config import Config, GenshinSettings, MidiSettings
 from midiator.engine import Midiator
 from midiator.midi import HeldNotes
+from midiator.windows.keyboard import Key
 
 
 class GenshinOptions(TypedDict, total=False):
@@ -409,3 +413,88 @@ class TestStats:
         engine.release(60)
         engine.press(61)
         assert engine.stats["keys"] == 2
+
+
+class TimedKeySender:
+    """Records when each key event was sent."""
+
+    def __init__(self) -> None:
+        self.times: list[float] = []
+
+    def send(self, key: Key, pressed: bool) -> None:
+        self.times.append(time.perf_counter())
+
+
+class SlowConsoleHandler(logging.Handler):
+    """A console that takes its time over every line."""
+
+    def __init__(self, delay: float = 0.02) -> None:
+        super().__init__()
+        self.delay = delay
+        self.written: list[float] = []
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        time.sleep(self.delay)
+        self.written.append(time.perf_counter())
+        self.messages.append(record.getMessage())
+
+
+class TestTheLogNeverDelaysTheKey:
+    """A note is described after it has been played, never before.
+
+    With a slow console, logging first would put its cost in front of every
+    key press. These tests pin the order down, so a future "tidy up" that moves
+    a log call back above the send fails here.
+    """
+
+    @pytest.fixture
+    def slow_console(self) -> Iterator[SlowConsoleHandler]:
+        handler = SlowConsoleHandler()
+        engine_log = logging.getLogger("midiator.engine")
+        engine_log.addHandler(handler)
+        engine_log.setLevel(logging.INFO)
+        try:
+            yield handler
+        finally:
+            engine_log.removeHandler(handler)
+            engine_log.setLevel(logging.NOTSET)
+
+    def test_the_key_is_sent_before_the_note_is_logged(self, slow_console: SlowConsoleHandler) -> None:
+        sender = TimedKeySender()
+        config = Config(preset="genshin", midi=MidiSettings(channel=0))
+        config.verbose = True
+        engine = Midiator(config, sender, RecordingMouseSender())
+
+        engine.press(60)
+
+        assert sender.times, "the key press should have gone out"
+        assert slow_console.written, "the note should still be logged"
+        assert sender.times[0] < slow_console.written[0]
+
+    def test_the_note_is_still_described(
+        self,
+        slow_console: SlowConsoleHandler,
+        key_sender: RecordingKeySender,
+        mouse_sender: RecordingMouseSender,
+    ) -> None:
+        engine = make_engine(keys=key_sender, mouse=mouse_sender)
+        engine.config.verbose = True
+        engine.press(61)  # C#4 snaps to C4 -> key A
+
+        assert slow_console.messages
+        assert "key A" in slow_console.messages[0]
+        assert "snapped" in slow_console.messages[0]
+
+    def test_a_repeat_that_sends_nothing_is_not_logged(self, slow_console: SlowConsoleHandler) -> None:
+        config = Config(preset="generic")
+        config.verbose = True
+        config.binds.keys = {42: "W"}
+        sender = RecordingKeySender()
+        engine = Midiator(config, sender, RecordingMouseSender())
+
+        engine.press(42)
+        engine.press(42)
+
+        assert sender.presses == ["W"]
+        assert len(slow_console.messages) == 1

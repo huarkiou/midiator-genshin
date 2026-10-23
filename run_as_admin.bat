@@ -8,6 +8,11 @@ rem If the elevation request is refused before any prompt appears, see the
 rem fallback instructions it prints, or "Running from a double-click" in
 rem README.md.
 rem
+rem Options are passed through to MIDIator unchanged, so a shortcut or a
+rem command prompt can carry them:
+rem
+rem     run_as_admin.bat --latency -q
+rem
 rem This file is deliberately ASCII-only, and must be saved without a BOM.
 rem cmd.exe re-reads a running batch file by byte offset, so non-ASCII bytes or
 rem a leading BOM can desync that read and make the script re-execute itself.

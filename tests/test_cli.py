@@ -103,3 +103,22 @@ class TestParser:
     def test_invalid_key_mode_is_rejected_by_the_parser(self) -> None:
         with pytest.raises(SystemExit):
             build_parser().parse_args(["--key-mode", "telepathy"])
+
+    def test_latency_meter_is_off_by_default(self) -> None:
+        assert build_parser().parse_args([]).latency is False
+
+    def test_latency_meter_can_be_asked_for(self) -> None:
+        assert build_parser().parse_args(["--latency"]).latency is True
+
+
+class TestLatencyFlag:
+    def test_preview_starts_no_meter(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """--preview must not leave a timer printing over the mapping."""
+        config = tmp_path / "midiator.toml"
+        config.write_text("preset = 'genshin'\n", encoding="utf-8")
+
+        assert main(["--preview", "60", "--latency", "-c", str(config)]) == 0
+
+        output = capsys.readouterr().out
+        assert "key A" in output
+        assert "Latency meter" not in output

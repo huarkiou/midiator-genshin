@@ -206,46 +206,66 @@ class Midiator:
         return Target("unbound")
 
     def press(self, note: int) -> None:
-        """Handle a note going down."""
+        """Handle a note going down.
+
+        The input goes out first and the note is described afterwards: whatever
+        reports on a note must never sit between the note and the game.
+        """
         self._maybe_auto_transpose(note)
         target = self.resolve(note)
+        sent = self._apply(note, target)
+        self._report(note, target, sent)
 
-        if target.plan is not None:
-            line = target.plan.summary
-            if not target.plan.playable:
-                self.stats["skipped"] += 1
-            self.log("%s", line)
+    def _apply(self, note: int, target: Target) -> bool:
+        """Send whatever ``target`` stands for. Returns whether input went out.
 
-        if target.kind == "unbound":
-            if target.plan is None:
-                self.log("    note %d (%s) is not bound", note, pitch_name(note))
-                self.stats["unbound"] += 1
-            return
-
+        Nothing in here may log: this is the part that has to be fast, and it
+        runs before :meth:`_report` gets a chance to write anything.
+        """
         if target.kind == "key":
-            self._press_key(note, target)
-        elif target.kind == "button" and target.button is not None:
+            return self._press_key(note, target)
+        if target.kind == "button" and target.button is not None:
             self.mouse.button(target.button, True)
             self._held_buttons[note] = target.button
             self.stats["buttons"] += 1
-        elif target.kind == "move" and target.direction is not None:
+            return True
+        if target.kind == "move" and target.direction is not None:
             self._move_counts[target.direction] += 1
             self.stats["moves"] += 1
+            return True
+        if target.kind == "unbound" and target.plan is None:
+            # A Genshin note that cannot be played is counted as skipped, in
+            # _report; "unbound" means there is no binding at all.
+            self.stats["unbound"] += 1
+        return False
 
-    def _press_key(self, note: int, target: Target) -> None:
+    def _report(self, note: int, target: Target, sent: bool) -> None:
+        """Log what :meth:`press` just did."""
+        plan = target.plan
+        if plan is not None:
+            if not plan.playable:
+                self.stats["skipped"] += 1
+            self.log("%s", plan.summary)
+            return
+        if target.kind == "unbound":
+            self.log("    note %d (%s) is not bound", note, pitch_name(note))
+        elif target.kind == "key" and sent:
+            self.log("    note %d (%s) -> %s", note, pitch_name(note), target.label)
+
+    def _press_key(self, note: int, target: Target) -> bool:
+        """Send the key press for ``target``. Returns whether it went out."""
         assert target.key is not None
         if self._held_keys.get(note) is target.key:
             # The same note arriving again must not double-press a game key.
             logger.debug("note %d is already mapped to %s; ignoring repeat", note, target.key.name)
-            return
+            return False
         if note in self._held_keys:
             self.release(note)
 
-        if target.plan is None:
-            self.log("    note %d (%s) -> %s", note, pitch_name(note), target.label)
         self.keys.send(target.key, True)
         self._held_keys[note] = target.key
         self.stats["keys"] += 1
+        return True
 
     def release(self, note: int) -> None:
         """Handle a note being released."""
